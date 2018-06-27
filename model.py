@@ -197,7 +197,7 @@ def simulate(model, train_mode=False, render_mode=True, num_episode=5, seed=-1, 
     obs = model.env.reset()
     obs = config.adjust_obs(obs)
     action = model.env.action_space.sample()
-
+    #KOE: This shows car to screen during training.
     model.env.render("human")
 
     if obs is None:

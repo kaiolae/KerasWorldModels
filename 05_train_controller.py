@@ -1,6 +1,18 @@
 #python 05_train_controller.py car_racing -e 1 -n 4 -t 1 --max_length 1000
 #xvfb-run -a -s "-screen 0 1400x900x24" python 05_train_controller.py car_racing -n 16 -t 2 -e 4 --max_length 1000
 
+#------KOE: Lines I added to avoid out-of-memory
+import tensorflow as tf
+from keras.backend.tensorflow_backend import set_session
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
+config.log_device_placement = True  # to log device placement (on which device the operation ran)
+                                    # (nothing gets printed in Jupyter, only if you run it standalone)
+sess = tf.Session(config=config)
+set_session(sess)  # set this TensorFlow session as the default session for Keras
+#
+#---------------
+
 from mpi4py import MPI
 import numpy as np
 import json
@@ -25,12 +37,14 @@ import config
 
 ### ES related code - parameters are just dummy values so do not edit here. Instead, set in the args to the script.
 num_episode = 1
-eval_steps = 25 # evaluate every N_eval steps
+eval_steps = 25 # evaluate and store resulting individuals every N_eval steps
 retrain_mode = True
 cap_time_mode = True
 
 num_worker = 8
 num_worker_trial = 16
+
+NUM_GENERATIONS = 200
 
 population = num_worker * num_worker_trial
 
@@ -206,8 +220,10 @@ def worker(weights, seed, max_len, new_model, train_mode_int=1):
 
   train_mode = (train_mode_int == 1)
   new_model.set_model_params(weights)
+  #KOE: Render_mode false below results in a static image of each individual. True shows actual behavior.
+  #What I really want is to turn rendering completely off. Haven't figured that out yet.
   reward_list, t_list = simulate(new_model,
-    train_mode=train_mode, render_mode=False, num_episode=num_episode, seed=seed, max_len=max_len)
+    train_mode=train_mode, render_mode=True, num_episode=num_episode, seed=seed, max_len=max_len) #KOE: Debugging. changed rendermode from false to true
   if batch_mode == 'min':
     reward = np.min(reward_list)
   else:
@@ -218,8 +234,9 @@ def worker(weights, seed, max_len, new_model, train_mode_int=1):
 def slave():
 
   new_model = make_model()
-  
+
   while 1:
+
     #print('waiting for packet')
     packet = comm.recv(source=0)
     #comm.Recv(packet, source=0)
@@ -245,7 +262,7 @@ def slave():
       jobidx = int(jobidx)
       seed = int(seed)
     
-      fitness, timesteps = worker(weights, seed, max_len, new_model, train_mode)
+      fitness, timesteps = worker(weights, seed, max_len, new_model, train_mode) #Fitness eval inside here.
      
       results.append([worker_id, jobidx, fitness, timesteps])
 
@@ -331,7 +348,7 @@ def master():
   filename_best = controller_filebase+'.best.json'
   filename_es = controller_filebase+'.es.pk'
 
-  t = 0
+  current_generation = 0
 
   #if len(config.train_envs) == 1:
   current_env_name = config.train_envs[0]
@@ -344,9 +361,9 @@ def master():
 
   
 
-  while True:
+  while(current_generation<NUM_GENERATIONS):
     
-    t += 1
+    current_generation += 1
 
     solutions = es.ask()
 
@@ -400,7 +417,7 @@ def master():
 
     curr_time = int(time.time()) - start_time
 
-    h = (t, curr_time, avg_reward, r_min, r_max, std_reward, int(es.rms_stdev()*100000)/100000., mean_time_step+1., int(max_time_step)+1)
+    h = (current_generation, curr_time, avg_reward, r_min, r_max, std_reward, int(es.rms_stdev()*100000)/100000., mean_time_step+1., int(max_time_step)+1)
 
     if cap_time_mode:
       max_len = 2*int(mean_time_step+1.0)
@@ -419,16 +436,16 @@ def master():
 
     
 
-    if (t == 1):
+    if (current_generation == 1):
       best_reward_eval = avg_reward
-    if (t % eval_steps == 0): # evaluate on actual task at hand
+    if (current_generation % eval_steps == 0): # evaluate on actual task at hand
 
       prev_best_reward_eval = best_reward_eval
       model_params_quantized = np.array(es.current_param()).round(4)
       reward_eval = evaluate_batch(model_params_quantized, max_len=-1)
       model_params_quantized = model_params_quantized.tolist()
       improvement = reward_eval - best_reward_eval
-      eval_log.append([t, reward_eval, model_params_quantized])
+      eval_log.append([current_generation, reward_eval, model_params_quantized])
       with open(filename_log, 'wt') as out:
         res = json.dump(eval_log, out)
       if (len(eval_log) == 1 or reward_eval > best_reward_eval):
@@ -443,7 +460,7 @@ def master():
       
       
 
-      sprint("improvement", t, improvement, "curr", reward_eval, "prev", prev_best_reward_eval, "best", best_reward_eval)
+      sprint("improvement", current_generation, improvement, "curr", reward_eval, "prev", prev_best_reward_eval, "best", best_reward_eval)
 
 
 def main(args):

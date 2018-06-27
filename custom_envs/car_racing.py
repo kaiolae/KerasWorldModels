@@ -377,6 +377,12 @@ class CarRacing(gym.Env):
         if mode != 'state_pixels':
             win.switch_to()
             win.dispatch_events()
+
+        #KOE: Added if to try to fix reendering problem
+        #if "dispatch_events_called" not in self.__dict__ and mode == 'state_pixels':
+        #    win.dispatch_events()
+        #    self.dispatch_events_called = True
+
         if mode=="rgb_array" or mode=="state_pixels":
             win.clear()
             t = self.transform

@@ -39,6 +39,17 @@ class VAE():
         self.input_dim = INPUT_DIM
         self.z_dim = Z_DIM
 
+    #KOE: Seems code to generate outputs from VAE is missing? I'm adding it here.
+
+    #Generates latent z-values for all pictures in one rollout.
+    def generate_latent_variables(self,input):
+        z_mean = self.encoder.predict(input, batch_size=1)
+        return z_mean
+
+    #Regenerates pictures based on latent values.
+    def generate_picture_from_latent(self, latent_variables):
+        decoded_images = self.decoder.predict(latent_variables)
+        return decoded_images
 
     def _build(self):
         vae_x = Input(shape=INPUT_DIM)
